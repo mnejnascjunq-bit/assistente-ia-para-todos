@@ -43,8 +43,9 @@ def gerar_audio(texto):
     return audio_bytes.getvalue()
 
 # ==========================================
-# BLOCO D: Descoberta ao Vivo de Modelos Gratuitos
+# BLOCO D: Descoberta Automática de Modelos Gratuitos
 # ==========================================
+@st.cache_data(ttl=1800, show_spinner=False)
 def obter_modelos_gratuitos():
     try:
         req = urllib.request.urlopen("https://openrouter.ai/models", timeout=5)
@@ -64,6 +65,7 @@ def obter_modelos_gratuitos():
 # ==========================================
 # BLOCO E: Consulta Rápida à IA com Fallback
 # ==========================================
+@st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
     modelos = obter_modelos_gratuitos()
     ultimo_erro = None
@@ -154,8 +156,10 @@ if pergunta_final:
                     with st.spinner("Preparando voz..."):
                         audio_dados = gerar_audio(texto_resposta)
                         st.audio(audio_dados, format="audio/mp3", autoplay=True)
-            except Exception as erro_real:
-                st.error(f"Detalhe técnico: {erro_real}")
+            except Exception:
+                aviso = "⏳ O servidor gratuito está com alto volume de acessos no momento. Aguarde alguns segundos e clique novamente!"
+                st.warning(aviso)
+                st.session_state.mensagens.append({"role": "assistant", "content": aviso})
 
 with st.sidebar:
     st.header("♿ Acessibilidade")
