@@ -44,11 +44,11 @@ def gerar_audio(texto):
 # ==========================================
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
-    modelos = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
+    modelos = ["gemini-3.5-flash-lite", "gemini-2.5-flash"]
     ultimo_erro = None
 
-    for modelo_atual in modelos:
-        for tentativa in range(2):
+    for tentativa in range(2):
+        for modelo_atual in modelos:
             try:
                 resposta = client.models.generate_content(
                     model=modelo_atual,
@@ -60,7 +60,8 @@ def consultar_ia(pergunta, instrucoes):
                 return resposta.text
             except Exception as e:
                 ultimo_erro = e
-                time.sleep(1.5)
+                time.sleep(2)
+        time.sleep(8)
 
     raise ultimo_erro
 
