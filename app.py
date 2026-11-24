@@ -1,4 +1,5 @@
 import os
+import time
 from io import BytesIO
 import streamlit as st
 from dotenv import load_dotenv
@@ -39,19 +40,30 @@ def gerar_audio(texto):
     return audio_bytes.getvalue()
 
 # ==========================================
-# BLOCO D: Função Rápida com Cache (Economiza Cota)
+# BLOCO D: Consulta Real à IA com Fallback e Retry
 # ==========================================
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
-    resposta = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=pergunta,
-        config=types.GenerateContentConfig(
-            system_instruction=instrucoes,
-            thinking_config=types.ThinkingConfig(thinking_level="LOW")
-        )
-    )
-    return resposta.text
+    modelos = ["gemini-3.8-flash", "gemini-2.5-flash"]
+    ultimo_erro = None
+
+    for modelo_atual in modelos:
+        for tentativa in range(2):
+            try:
+                resposta = client.models.generate_content(
+                    model=modelo_atual,
+                    contents=pergunta,
+                    config=types.GenerateContentConfig(
+                        system_instruction=instrucoes,
+                        thinking_config=types.ThinkingConfig(thinking_level="LOW")
+                    )
+                )
+                return resposta.text
+            except Exception as e:
+                ultimo_erro = e
+                time.sleep(1.5)
+
+    raise ultimo_erro
 
 # ==========================================
 # BLOCO E: Interface Web e Acessibilidade
@@ -76,7 +88,6 @@ Regras obrigatórias:
 if "mensagens" not in st.session_state:
     st.session_state.mensagens = []
 
-# Botões de sugestões rápidas
 st.markdown("**💡 Clique em um tema rápido ou escreva abaixo:**")
 col1, col2, col3 = st.columns(3)
 pergunta_sugerida = None
@@ -93,7 +104,6 @@ with col3:
 
 st.markdown("---")
 
-# Exibe histórico
 for idx, msg in enumerate(st.session_state.mensagens):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -103,7 +113,6 @@ for idx, msg in enumerate(st.session_state.mensagens):
                     audio_dados = gerar_audio(msg["content"])
                     st.audio(audio_dados, format="audio/mp3", autoplay=True)
 
-# Entrada do usuário
 pergunta_digitada = st.chat_input("Digite sua dúvida aqui...")
 pergunta_final = pergunta_sugerida or pergunta_digitada
 
@@ -118,19 +127,16 @@ if pergunta_final:
                 texto_resposta = consultar_ia(pergunta_final, instrucoes_sistema)
                 st.markdown(texto_resposta)
                 st.session_state.mensagens.append({"role": "assistant", "content": texto_resposta})
-                
                 idx_atual = len(st.session_state.mensagens) - 1
                 if st.button("🔊 Ouvir resposta", key=f"btn_audio_{idx_atual}"):
                     with st.spinner("Preparando voz..."):
                         audio_dados = gerar_audio(texto_resposta)
                         st.audio(audio_dados, format="audio/mp3", autoplay=True)
-
             except Exception:
-                aviso = "⏳ O limite diário gratuito de testes foi atingido ou o servidor está ocupado. Aguarde a renovação da cota ou tente novamente em alguns instantes!"
+                aviso = "⏳ O servidor gratuito da API está com alta demanda no momento ou atingiu o limite diário de requisições gratuitas. Tente novamente em alguns instantes!"
                 st.warning(aviso)
                 st.session_state.mensagens.append({"role": "assistant", "content": aviso})
 
-# Barra lateral de Acessibilidade
 with st.sidebar:
     st.header("♿ Acessibilidade")
     st.info("🔊 Clique em **'🔊 Ouvir resposta'** abaixo do texto para escutar em voz alta.")
