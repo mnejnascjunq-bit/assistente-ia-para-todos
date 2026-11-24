@@ -1,6 +1,6 @@
 import os
-import urllib.request
 import json
+import urllib.request
 from io import BytesIO
 import streamlit as st
 from dotenv import load_dotenv
@@ -23,10 +23,12 @@ client = OpenAI(
 @st.cache_data
 def extrair_texto_pdf(caminho_pdf):
     leitor = PdfReader(caminho_pdf)
-    texto_completo = ""
+    paginas_texto = []
     for pagina in leitor.pages:
-        texto_completo += pagina.extract_text() + "\n"
-    return " ".join(texto_completo.split())[:6000]
+        texto_pagina = pagina.extract_text() or ""
+        paginas_texto.append(texto_pagina)
+    texto_limpo = " ".join(" ".join(paginas_texto).split())
+    return texto_limpo[:6000]
 
 conteudo_folder = extrair_texto_pdf("Inteligencia_Artificial_para_Todos.pdf")
 
@@ -47,23 +49,28 @@ def gerar_audio(texto):
 # ==========================================
 @st.cache_data(ttl=1800, show_spinner=False)
 def obter_modelos_gratuitos():
+    modelos_disponiveis = ["openrouter/free"]
     try:
         req = urllib.request.urlopen("https://openrouter.ai/models", timeout=5)
         dados = json.loads(req.read().decode("utf-8"))
-        livres = [
-            m["id"] for m in dados.get("data", [])
-            if m.get("id", "").endswith(":free")
-            and "vision" not in m.get("id", "").lower()
-            and "image" not in m.get("id", "").lower()
-        ]
-        if livres:
-            return ["openrouter/free"] + livres[:8]
+        for item in dados.get("data", []):
+            modelo_id = item.get("id", "")
+            nome_baixo = modelo_id.lower()
+            if (
+                modelo_id.endswith(":free")
+                and "vision" not in nome_baixo
+                and "image" not in nome_baixo
+                and "audio" not in nome_baixo
+            ):
+                modelos_disponiveis.append(modelo_id)
+                if len(modelos_disponiveis) >= 8:
+                    break
     except Exception:
         pass
-    return ["openrouter/free"]
+    return modelos_disponiveis
 
 # ==========================================
-# BLOCO E: Consulta Rápida à IA com Fallback
+# BLOCO E: Consulta Rápida à IA com Fallback Seguro
 # ==========================================
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
@@ -81,11 +88,12 @@ def consultar_ia(pergunta, instrucoes):
                 temperature=0.3,
                 max_tokens=800
             )
-            conteudo = resposta.choices[0].message.content
+            primeira_escolha = next(iter(resposta.choices))
+            conteudo = primeira_escolha.message.content
             if conteudo:
-                return conteudo
-        except Exception as e:
-            ultimo_erro = e
+                return conteudo.strip()
+        except Exception as erro:
+            ultimo_erro = erro
 
     raise ultimo_erro
 
@@ -129,12 +137,12 @@ with col3:
 st.markdown("---")
 
 for idx, msg in enumerate(st.session_state.mensagens):
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if msg["role"] == "assistant":
+    with st.chat_message(msg.get("role")):
+        st.markdown(msg.get("content"))
+        if msg.get("role") == "assistant":
             if st.button("🔊 Ouvir resposta", key=f"btn_audio_{idx}"):
                 with st.spinner("Preparando voz..."):
-                    audio_dados = gerar_audio(msg["content"])
+                    audio_dados = gerar_audio(msg.get("content"))
                     st.audio(audio_dados, format="audio/mp3", autoplay=True)
 
 pergunta_digitada = st.chat_input("Digite sua dúvida aqui...")
@@ -171,8 +179,8 @@ with st.sidebar:
     
     ultima_resposta = ""
     for msg in reversed(st.session_state.mensagens):
-        if msg["role"] == "assistant":
-            ultima_resposta = msg["content"]
+        if msg.get("role") == "assistant":
+            ultima_resposta = msg.get("content")
             break
     if ultima_resposta:
         st.text_area("Última resposta (copiar):", value=ultima_resposta, height=150)
