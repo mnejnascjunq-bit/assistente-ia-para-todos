@@ -44,7 +44,7 @@ def gerar_audio(texto):
 # ==========================================
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
-    modelos = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    modelos = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
     ultimo_erro = None
 
     for modelo_atual in modelos:
@@ -131,8 +131,10 @@ if pergunta_final:
                     with st.spinner("Preparando voz..."):
                         audio_dados = gerar_audio(texto_resposta)
                         st.audio(audio_dados, format="audio/mp3", autoplay=True)
-            except Exception as erro_real:
-                st.error(f"Detalhe técnico: {erro_real}")
+            except Exception:
+                aviso = "⏳ O servidor gratuito da API está com alta demanda no momento. Aguarde alguns segundos e clique novamente!"
+                st.warning(aviso)
+                st.session_state.mensagens.append({"role": "assistant", "content": aviso})
 
 with st.sidebar:
     st.header("♿ Acessibilidade")
