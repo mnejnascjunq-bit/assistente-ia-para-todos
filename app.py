@@ -1,4 +1,5 @@
 import os
+import time
 from io import BytesIO
 import streamlit as st
 from dotenv import load_dotenv
@@ -43,54 +44,63 @@ def gerar_audio(texto):
     return audio_bytes.getvalue()
 
 # ==========================================
-# BLOCO D: Consulta Híbrida (OpenRouter + Gemini Backup)
+# BLOCO D: Consulta Híbrida com Retry e Fallback
 # ==========================================
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
-    erros = []
+    ultimo_erro = None
 
-    # 1. Tenta via OpenRouter
-    if chave_openrouter:
-        try:
-            client_or = OpenAI(
-                base_url="https://openrouter.ai",
-                api_key=chave_openrouter
-            )
-            resposta = client_or.chat.completions.create(
-                model="openrouter/free",
-                messages=[
-                    {"role": "system", "content": instrucoes},
-                    {"role": "user", "content": pergunta}
-                ],
-                temperature=0.3,
-                max_tokens=750
-            )
-            primeira_escolha = next(iter(resposta.choices))
-            conteudo = primeira_escolha.message.content
-            if conteudo:
-                return conteudo.strip()
-        except Exception as e:
-            erros.append(f"OpenRouter: {e}")
-
-    # 2. Plano B Automático via Google Gemini
+    # 1. Tenta via Google Gemini (com 2 modelos e retentativa contra picos 503)
     if chave_gemini:
-        try:
-            client_gem = genai.Client(api_key=chave_gemini)
-            resposta_gem = client_gem.models.generate_content(
-                model="gemini-3.5-flash-lite",
-                contents=pergunta,
-                config=types.GenerateContentConfig(
-                    system_instruction=instrucoes,
-                    temperature=0.3,
-                    max_output_tokens=750
-                )
-            )
-            if resposta_gem.text:
-                return resposta_gem.text.strip()
-        except Exception as e:
-            erros.append(f"Gemini: {e}")
+        client_gem = genai.Client(api_key=chave_gemini)
+        modelos_gemini = ["gemini-3.5-flash-lite", "gemini-2.5-flash"]
+        for modelo_gem in modelos_gemini:
+            for tentativa in range(2):
+                try:
+                    resposta_gem = client_gem.models.generate_content(
+                        model=modelo_gem,
+                        contents=pergunta,
+                        config=types.GenerateContentConfig(
+                            system_instruction=instrucoes,
+                            temperature=0.3,
+                            max_output_tokens=750
+                        )
+                    )
+                    if resposta_gem.text:
+                        return resposta_gem.text.strip()
+                except Exception as e:
+                    ultimo_erro = e
+                    time.sleep(2)
 
-    raise RuntimeError(" | ".join(erros) if erros else "Nenhuma chave API configurada nos Secrets.")
+    # 2. Plano B via OpenRouter (modelos gratuitos ativos)
+    if chave_openrouter:
+        client_or = OpenAI(
+            base_url="https://openrouter.ai",
+            api_key=chave_openrouter
+        )
+        modelos_or = [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "google/gemma-3-27b-it:free"
+        ]
+        for modelo_or in modelos_or:
+            try:
+                resposta = client_or.chat.completions.create(
+                    model=modelo_or,
+                    messages=[
+                        {"role": "system", "content": instrucoes},
+                        {"role": "user", "content": pergunta}
+                    ],
+                    temperature=0.3,
+                    max_tokens=750
+                )
+                primeira_escolha = next(iter(resposta.choices))
+                conteudo = primeira_escolha.message.content
+                if conteudo:
+                    return conteudo.strip()
+            except Exception as e:
+                ultimo_erro = e
+
+    raise ultimo_erro or RuntimeError("Nenhuma chave API ativa.")
 
 # ==========================================
 # BLOCO E: Interface Web e Acessibilidade
@@ -159,8 +169,10 @@ if pergunta_final:
                     with st.spinner("Preparando voz..."):
                         audio_dados = gerar_audio(texto_resposta)
                         st.audio(audio_dados, format="audio/mp3", autoplay=True)
-            except Exception as erro_detalhado:
-                st.error(f"Status técnico: {erro_detalhado}")
+            except Exception:
+                aviso = "⏳ O servidor gratuito está com alto volume de acessos neste segundo. Aguarde 5 segundos e clique novamente!"
+                st.warning(aviso)
+                st.session_state.mensagens.append({"role": "assistant", "content": aviso})
 
 with st.sidebar:
     st.header("♿ Acessibilidade")
