@@ -1,21 +1,22 @@
 import os
-import time
 from io import BytesIO
 import streamlit as st
 from dotenv import load_dotenv
 from pypdf import PdfReader
 from gtts import gTTS
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 # ==========================================
-# BLOCO A: Importações e Configuração
+# BLOCO A: Importações e Configuração (OpenRouter)
 # ==========================================
 load_dotenv(override=True)
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY")
+)
 
 # ==========================================
-# BLOCO B: Leitura do PDF do Folder (Em Cache)
+# BLOCO B: Leitura Otimizada do PDF (Em Cache)
 # ==========================================
 @st.cache_data
 def extrair_texto_pdf(caminho_pdf):
@@ -23,7 +24,7 @@ def extrair_texto_pdf(caminho_pdf):
     texto_completo = ""
     for pagina in leitor.pages:
         texto_completo += pagina.extract_text() + "\n"
-    return texto_completo
+    return " ".join(texto_completo.split())[:6000]
 
 conteudo_folder = extrair_texto_pdf("Inteligencia_Artificial_para_Todos.pdf")
 
@@ -40,28 +41,30 @@ def gerar_audio(texto):
     return audio_bytes.getvalue()
 
 # ==========================================
-# BLOCO D: Consulta Real à IA com Fallback e Retry
+# BLOCO D: Consulta Rápida à IA com Fallback (OpenRouter Free)
 # ==========================================
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
-    modelos = ["gemini-3.5-flash-lite", "gemini-2.5-flash"]
+    modelos = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemma-3-27b-it:free"
+    ]
     ultimo_erro = None
 
-    for tentativa in range(2):
-        for modelo_atual in modelos:
-            try:
-                resposta = client.models.generate_content(
-                    model=modelo_atual,
-                    contents=pergunta,
-                    config=types.GenerateContentConfig(
-                        system_instruction=instrucoes
-                    )
-                )
-                return resposta.text
-            except Exception as e:
-                ultimo_erro = e
-                time.sleep(2)
-        time.sleep(8)
+    for modelo_atual in modelos:
+        try:
+            resposta = client.chat.completions.create(
+                model=modelo_atual,
+                messages=[
+                    {"role": "system", "content": instrucoes},
+                    {"role": "user", "content": pergunta}
+                ],
+                temperature=0.3,
+                max_tokens=800
+            )
+            return resposta.choices[0].message.content
+        except Exception as e:
+            ultimo_erro = e
 
     raise ultimo_erro
 
@@ -74,14 +77,14 @@ st.write("Tire suas dúvidas sobre o guia digital, crie prompts prontos e aprend
 
 instrucoes_sistema = f"""
 Você é um assistente educativo do projeto 'Inteligência Artificial para Todos'.
-Responda de forma completa, clara e acolhedora com base EXCLUSIVAMENTE no guia abaixo:
+Responda de forma clara, objetiva, rápida e acolhedora com base EXCLUSIVAMENTE no guia abaixo:
 
 {conteudo_folder}
 
 Regras obrigatórias:
-1. Responda sempre em português do Brasil claro e didático, sem cortar informações importantes.
-2. Entenda perguntas informais, curtas ou fora do padrão e conecte-as aos temas do guia.
-3. Para pedidos de texto, anúncio ou comando, entregue o exemplo completo usando a Fórmula do Comando Perfeito (Papel, Tarefa, Contexto) e lembre dos cuidados de revisão e privacidade.
+1. Responda sempre em português do Brasil claro e didático.
+2. Entenda qualquer pergunta feita pelo usuário (mesmo informal ou curta) e conecte-a aos temas do guia.
+3. Para pedidos de anúncio, texto ou comando, entregue um exemplo completo usando a Fórmula do Comando Perfeito (Papel, Tarefa, Contexto) e lembre dos cuidados de privacidade.
 4. Se perguntarem algo totalmente fora do tema do folder, explique gentilmente que seu foco é ajudar com o guia de IA.
 """
 
@@ -133,7 +136,7 @@ if pergunta_final:
                         audio_dados = gerar_audio(texto_resposta)
                         st.audio(audio_dados, format="audio/mp3", autoplay=True)
             except Exception:
-                aviso = "⏳ O servidor gratuito da API está com alta demanda no momento. Aguarde alguns segundos e clique novamente!"
+                aviso = "⏳ O servidor gratuito está com alto volume de acessos no momento. Aguarde alguns segundos e clique novamente!"
                 st.warning(aviso)
                 st.session_state.mensagens.append({"role": "assistant", "content": aviso})
 
