@@ -44,7 +44,7 @@ def gerar_audio(texto):
 # ==========================================
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
-    modelos = ["gemini-3.8-flash", "gemini-2.5-flash"]
+    modelos = ["gemini-2.5-flash", "gemini-3.8-flash"]
     ultimo_erro = None
 
     for modelo_atual in modelos:
