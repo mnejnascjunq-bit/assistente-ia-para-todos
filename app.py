@@ -11,7 +11,7 @@ from openai import OpenAI
 # ==========================================
 load_dotenv(override=True)
 client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
+    base_url="https://openrouter.ai",
     api_key=os.getenv("OPENROUTER_API_KEY")
 )
 
@@ -46,6 +46,7 @@ def gerar_audio(texto):
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
     modelos = [
+        "openrouter/free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "google/gemma-3-27b-it:free"
     ]
@@ -135,10 +136,8 @@ if pergunta_final:
                     with st.spinner("Preparando voz..."):
                         audio_dados = gerar_audio(texto_resposta)
                         st.audio(audio_dados, format="audio/mp3", autoplay=True)
-            except Exception:
-                aviso = "⏳ O servidor gratuito está com alto volume de acessos no momento. Aguarde alguns segundos e clique novamente!"
-                st.warning(aviso)
-                st.session_state.mensagens.append({"role": "assistant", "content": aviso})
+            except Exception as erro_real:
+                st.error(f"Detalhe técnico: {erro_real}")
 
 with st.sidebar:
     st.header("♿ Acessibilidade")
