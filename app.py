@@ -81,7 +81,7 @@ def consultar_ia(pergunta, instrucoes):
                 temperature=0.3,
                 max_tokens=800
             )
-            conteudo = resposta.choices.message.content
+            conteudo = resposta.choices[0].message.content
             if conteudo:
                 return conteudo
         except Exception as e:
