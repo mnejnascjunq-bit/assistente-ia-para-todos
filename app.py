@@ -1,21 +1,20 @@
 import os
-import json
-import urllib.request
 from io import BytesIO
 import streamlit as st
 from dotenv import load_dotenv
 from pypdf import PdfReader
 from gtts import gTTS
 from openai import OpenAI
+from google import genai
+from google.genai import types
 
 # ==========================================
-# BLOCO A: Importações e Configuração (OpenRouter)
+# BLOCO A: Importações e Configuração Dupla
 # ==========================================
 load_dotenv(override=True)
-client = OpenAI(
-    base_url="https://openrouter.ai",
-    api_key=os.getenv("OPENROUTER_API_KEY")
-)
+
+chave_openrouter = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+chave_gemini = (os.getenv("GEMINI_API_KEY") or "").strip()
 
 # ==========================================
 # BLOCO B: Leitura Otimizada do PDF (Em Cache)
@@ -25,8 +24,7 @@ def extrair_texto_pdf(caminho_pdf):
     leitor = PdfReader(caminho_pdf)
     paginas_texto = []
     for pagina in leitor.pages:
-        texto_pagina = pagina.extract_text() or ""
-        paginas_texto.append(texto_pagina)
+        paginas_texto.append(pagina.extract_text() or "")
     texto_limpo = " ".join(" ".join(paginas_texto).split())
     return texto_limpo[:6000]
 
@@ -45,60 +43,57 @@ def gerar_audio(texto):
     return audio_bytes.getvalue()
 
 # ==========================================
-# BLOCO D: Descoberta Automática de Modelos Gratuitos
-# ==========================================
-@st.cache_data(ttl=1800, show_spinner=False)
-def obter_modelos_gratuitos():
-    modelos_disponiveis = ["openrouter/free"]
-    try:
-        req = urllib.request.urlopen("https://openrouter.ai/models", timeout=5)
-        dados = json.loads(req.read().decode("utf-8"))
-        for item in dados.get("data", []):
-            modelo_id = item.get("id", "")
-            nome_baixo = modelo_id.lower()
-            if (
-                modelo_id.endswith(":free")
-                and "vision" not in nome_baixo
-                and "image" not in nome_baixo
-                and "audio" not in nome_baixo
-            ):
-                modelos_disponiveis.append(modelo_id)
-                if len(modelos_disponiveis) >= 8:
-                    break
-    except Exception:
-        pass
-    return modelos_disponiveis
-
-# ==========================================
-# BLOCO E: Consulta Rápida à IA com Fallback Seguro
+# BLOCO D: Consulta Híbrida (OpenRouter + Gemini Backup)
 # ==========================================
 @st.cache_data(show_spinner=False)
 def consultar_ia(pergunta, instrucoes):
-    modelos = obter_modelos_gratuitos()
-    ultimo_erro = None
+    erros = []
 
-    for modelo_atual in modelos:
+    # 1. Tenta via OpenRouter
+    if chave_openrouter:
         try:
-            resposta = client.chat.completions.create(
-                model=modelo_atual,
+            client_or = OpenAI(
+                base_url="https://openrouter.ai",
+                api_key=chave_openrouter
+            )
+            resposta = client_or.chat.completions.create(
+                model="openrouter/free",
                 messages=[
                     {"role": "system", "content": instrucoes},
                     {"role": "user", "content": pergunta}
                 ],
                 temperature=0.3,
-                max_tokens=800
+                max_tokens=750
             )
             primeira_escolha = next(iter(resposta.choices))
             conteudo = primeira_escolha.message.content
             if conteudo:
                 return conteudo.strip()
-        except Exception as erro:
-            ultimo_erro = erro
+        except Exception as e:
+            erros.append(f"OpenRouter: {e}")
 
-    raise ultimo_erro
+    # 2. Plano B Automático via Google Gemini
+    if chave_gemini:
+        try:
+            client_gem = genai.Client(api_key=chave_gemini)
+            resposta_gem = client_gem.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=pergunta,
+                config=types.GenerateContentConfig(
+                    system_instruction=instrucoes,
+                    temperature=0.3,
+                    max_output_tokens=750
+                )
+            )
+            if resposta_gem.text:
+                return resposta_gem.text.strip()
+        except Exception as e:
+            erros.append(f"Gemini: {e}")
+
+    raise RuntimeError(" | ".join(erros) if erros else "Nenhuma chave API configurada nos Secrets.")
 
 # ==========================================
-# BLOCO F: Interface Web e Acessibilidade
+# BLOCO E: Interface Web e Acessibilidade
 # ==========================================
 st.set_page_config(page_title="Assistente - IA para Todos", page_icon="🤖", layout="wide")
 st.title("🤖 Assistente Virtual: Inteligência Artificial para Todos")
@@ -164,10 +159,8 @@ if pergunta_final:
                     with st.spinner("Preparando voz..."):
                         audio_dados = gerar_audio(texto_resposta)
                         st.audio(audio_dados, format="audio/mp3", autoplay=True)
-            except Exception:
-                aviso = "⏳ O servidor gratuito está com alto volume de acessos no momento. Aguarde alguns segundos e clique novamente!"
-                st.warning(aviso)
-                st.session_state.mensagens.append({"role": "assistant", "content": aviso})
+            except Exception as erro_detalhado:
+                st.error(f"Status técnico: {erro_detalhado}")
 
 with st.sidebar:
     st.header("♿ Acessibilidade")
