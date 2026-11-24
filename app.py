@@ -1,4 +1,6 @@
 import os
+import urllib.request
+import json
 from io import BytesIO
 import streamlit as st
 from dotenv import load_dotenv
@@ -41,15 +43,29 @@ def gerar_audio(texto):
     return audio_bytes.getvalue()
 
 # ==========================================
-# BLOCO D: Consulta Rápida à IA com Fallback (OpenRouter Free)
+# BLOCO D: Descoberta ao Vivo de Modelos Gratuitos
 # ==========================================
-@st.cache_data(show_spinner=False)
+def obter_modelos_gratuitos():
+    try:
+        req = urllib.request.urlopen("https://openrouter.ai/models", timeout=5)
+        dados = json.loads(req.read().decode("utf-8"))
+        livres = [
+            m["id"] for m in dados.get("data", [])
+            if m.get("id", "").endswith(":free")
+            and "vision" not in m.get("id", "").lower()
+            and "image" not in m.get("id", "").lower()
+        ]
+        if livres:
+            return ["openrouter/free"] + livres[:8]
+    except Exception:
+        pass
+    return ["openrouter/free"]
+
+# ==========================================
+# BLOCO E: Consulta Rápida à IA com Fallback
+# ==========================================
 def consultar_ia(pergunta, instrucoes):
-    modelos = [
-        "openrouter/free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "google/gemma-3-27b-it:free"
-    ]
+    modelos = obter_modelos_gratuitos()
     ultimo_erro = None
 
     for modelo_atual in modelos:
@@ -63,14 +79,16 @@ def consultar_ia(pergunta, instrucoes):
                 temperature=0.3,
                 max_tokens=800
             )
-            return resposta.choices[0].message.content
+            conteudo = resposta.choices.message.content
+            if conteudo:
+                return conteudo
         except Exception as e:
             ultimo_erro = e
 
     raise ultimo_erro
 
 # ==========================================
-# BLOCO E: Interface Web e Acessibilidade
+# BLOCO F: Interface Web e Acessibilidade
 # ==========================================
 st.set_page_config(page_title="Assistente - IA para Todos", page_icon="🤖", layout="wide")
 st.title("🤖 Assistente Virtual: Inteligência Artificial para Todos")
